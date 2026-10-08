@@ -19,10 +19,11 @@ const rank = id => { const i = POPULAR.indexOf(id); return i < 0 ? POPULAR.lengt
 
 const app = document.getElementById('app');
 const sheet = document.getElementById('sheet');
-let EX = [], byId = new Map(), tab = 'All', query = '', flash = null;
+let EX = [], byId = new Map(), tab = 'All', query = '', flash = null, draft = null, pickFor = 'workout';
 
 const db = (() => { try { return JSON.parse(localStorage.getItem('rep')) } catch { return null } })()
   || { workouts: [], active: null, custom: [] };
+db.routines ||= [];
 let view = db.active ? 'workout' : 'home';
 
 function save() {
@@ -42,6 +43,9 @@ function dur(a, b = Date.now()) {
   const m = Math.max(1, Math.round((new Date(b) - new Date(a)) / 60000));
   return m < 60 ? `${m} min` : `${Math.floor(m / 60)} h ${m % 60} min`;
 }
+const DAYS = [1, 2, 3, 4, 5, 6, 0]; // Mon first; numbers match Date.getDay()
+const dayName = d => ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'][d];
+const daysText = days => days.length ? DAYS.filter(d => days.includes(d)).map(dayName).join(', ') : 'No days set';
 const setCount = w => w.ex.reduce((n, x) => n + x.sets.length, 0);
 const lastTime = id => db.workouts.find(w => w.ex.some(x => x.id === id))?.ex.find(x => x.id === id);
 const thumb = e => e?.i
@@ -57,14 +61,23 @@ function toast(msg) {
 
 // --- views ---
 function home() {
-  const a = db.active;
+  const a = db.active, due = a ? [] : db.routines.filter(r => r.days.includes(new Date().getDay()));
   return `
   <header class="bar"><h1 class="mark">Rep</h1></header>
-  <button class="go" data-act="start">${a ? 'Resume workout' : 'Start workout'}${a ? `<small>Started ${time(a.start)}</small>` : ''}</button>
+  ${due.map(r => `<button class="go" data-act="run" data-id="${r.id}">Today: ${esc(r.name)}<small>${r.ex.length} exercises</small></button>`).join('')}
+  <button class="${due.length ? 'ghost' : 'go'}" data-act="start">${a ? 'Resume workout' : due.length ? 'Start empty workout' : 'Start workout'}${a ? `<small>Started ${time(a.start)}</small>` : ''}</button>
+  <h2 class="sec">Routines</h2>
+  ${db.routines.length ? `<ul class="hist">${db.routines.map(r => `
+    <li><button data-act="routine" data-id="${r.id}">
+      <span class="d">${esc(r.name)}</span>
+      <span class="names">${daysText(r.days)}</span>
+      <span class="stat"><b>${r.ex.length}</b>exercises</span>
+    </button></li>`).join('')}</ul>` : ''}
+  <button class="add-ex" data-act="new-routine">+ New routine</button>
   <h2 class="sec">History</h2>
   ${db.workouts.length ? `<ul class="hist">${db.workouts.map((w, i) => `
     <li><button data-act="past" data-i="${i}">
-      <span class="d">${day(w.start)}</span>
+      <span class="d">${w.name ? `${esc(w.name)} <span class="dd">${day(w.start)}</span>` : day(w.start)}</span>
       <span class="names">${esc(w.ex.map(x => x.n).join(', '))}</span>
       <span class="stat"><b>${setCount(w)}</b>sets</span>
     </button></li>`).join('')}</ul>`
@@ -105,11 +118,38 @@ function workout() {
   return `
   <header class="bar">
     <button class="txt" data-act="discard">Discard</button>
-    <div class="ttl"><span>${day(a.start)}</span><small id="elapsed">${dur(a.start)}</small></div>
+    <div class="ttl"><span>${a.name ? esc(a.name) : day(a.start)}</span><small id="elapsed">${dur(a.start)}</small></div>
     <button class="pill" data-act="finish">Finish</button>
   </header>
   ${a.ex.map(block).join('') || '<p class="empty">Add an exercise to start logging sets.</p>'}
   <button class="add-ex" data-act="pick">+ Add exercise</button>`;
+}
+
+function routine() {
+  const r = draft;
+  return `
+  <header class="bar">
+    <button class="txt" data-act="home">Cancel</button>
+    <div class="ttl"><span>${r.id ? 'Edit routine' : 'New routine'}</span></div>
+    <button class="pill" form="rf">Save</button>
+  </header>
+  <form id="rf" class="rf">
+    <input id="rname" value="${esc(r.name)}" placeholder="Name, e.g. Push" required pattern=".*\\S.*" maxlength="40" aria-label="Routine name">
+  </form>
+  <h2 class="sec">Days</h2>
+  <div class="days">${DAYS.map(d => `<button data-act="day" data-d="${d}" aria-pressed="${r.days.includes(d)}">${dayName(d)}</button>`).join('')}</div>
+  <h2 class="sec">Exercises</h2>
+  ${rexList(r.ex, true)}
+  <button class="add-ex" data-act="pick">+ Add exercise</button>
+  ${r.id ? '<button class="ghost danger" data-act="del-routine">Delete routine</button>' : ''}`;
+}
+
+function rexList(ex, editable) {
+  return ex.length ? `<ul class="rex">${ex.map((x, i) => `<li>
+    <button class="thumb" data-act="info" data-id="${esc(x.id)}" aria-label="About ${esc(x.n)}">${thumb(find(x.id))}</button>
+    <span>${esc(x.n)}</span>
+    ${editable ? `<button class="x" data-act="rm-rex" data-i="${i}" aria-label="Remove ${esc(x.n)}">×</button>` : ''}
+  </li>`).join('')}</ul>` : '';
 }
 
 function picker() {
@@ -137,7 +177,7 @@ function grid() {
 
 function render() {
   app.dataset.view = view;
-  app.innerHTML = { home, workout, picker }[view]();
+  app.innerHTML = { home, workout, picker, routine }[view]();
   flash = null;
 }
 function go(v) { view = v; render(); scrollTo(0, 0) }
@@ -158,21 +198,53 @@ function info(id) {
     ${e.m ? `<ul class="chips">${[...e.m, e.e].filter(Boolean).map(c => `<li>${esc(c)}</li>`).join('')}</ul>` : ''}
     ${e.s?.length ? `<ol class="steps">${e.s.map(s => `<li>${esc(s)}</li>`).join('')}</ol>` : ''}
     <div class="sheet-foot">${view === 'picker'
-      ? `<button class="go" data-act="add" data-id="${esc(id)}">Add to workout</button>`
+      ? `<button class="go" data-act="add" data-id="${esc(id)}">Add to ${pickFor}</button>`
       : '<button class="ghost" data-act="close">Close</button>'}</div>`);
 }
 
 function addEx(e) {
-  db.active.ex.push({ id: e.id, n: e.n, sets: [] });
-  save(); sheet.close(); go('workout');
+  if (pickFor === 'routine') draft.ex.push({ id: e.id, n: e.n });
+  else { db.active.ex.push({ id: e.id, n: e.n, sets: [] }); save() }
+  sheet.close(); go(pickFor);
   scrollTo(0, document.body.scrollHeight);
 }
 
 // --- actions ---
 const act = {
   start() { db.active ||= { start: new Date().toISOString(), ex: [] }; save(); go('workout') },
-  pick() { query = ''; tab = 'All'; go('picker') },
-  back() { go('workout') },
+  pick() { pickFor = view; query = ''; tab = 'All'; go('picker') },
+  back() { go(pickFor) },
+  home() { go('home') },
+  'new-routine'() { draft = { name: '', days: [], ex: [] }; go('routine') },
+  'edit-routine'(b) { draft = structuredClone(db.routines.find(r => r.id === b.dataset.id)); sheet.close(); go('routine') },
+  routine(b) {
+    const r = db.routines.find(r => r.id === b.dataset.id);
+    open(`
+      <h2>${esc(r.name)}</h2>
+      <p class="sub">${daysText(r.days)}</p>
+      ${rexList(r.ex, false)}
+      <div class="sheet-foot two">
+        <button class="ghost" data-act="edit-routine" data-id="${r.id}">Edit</button>
+        <button class="go" data-act="run" data-id="${r.id}">Start workout</button>
+      </div>`);
+  },
+  run(b) {
+    sheet.close();
+    if (db.active) { go('workout'); return toast('Finish this workout first') }
+    const r = db.routines.find(r => r.id === b.dataset.id);
+    db.active = { start: new Date().toISOString(), name: r.name, ex: r.ex.map(x => ({ id: x.id, n: x.n, sets: [] })) };
+    save(); go('workout');
+  },
+  day(b) {
+    const d = +b.dataset.d;
+    draft.days = draft.days.includes(d) ? draft.days.filter(x => x !== d) : [...draft.days, d];
+    b.setAttribute('aria-pressed', draft.days.includes(d));
+  },
+  'rm-rex'(b) { draft.ex.splice(b.dataset.i, 1); render() },
+  'del-routine'() {
+    if (!confirm(`Delete the ${draft.name} routine? Past workouts stay in History.`)) return;
+    db.routines = db.routines.filter(r => r.id !== draft.id); save(); go('home'); toast('Routine deleted');
+  },
   close() { sheet.close() },
   info(b) { info(b.dataset.id) },
   add(b) { addEx(find(b.dataset.id)) },
@@ -186,7 +258,7 @@ const act = {
     open(`<form class="new">
       <h2>Add your own exercise</h2>
       <input name="n" value="${esc(query.trim())}" placeholder="Exercise name" autofocus required maxlength="60" aria-label="Exercise name">
-      <div class="sheet-foot"><button class="go">Add to workout</button></div>
+      <div class="sheet-foot"><button class="go">Add to ${pickFor}</button></div>
     </form>`);
   },
   'rm-ex'(b) {
@@ -239,10 +311,17 @@ document.addEventListener('submit', e => {
     let c = db.custom.find(x => x.n.toLowerCase() === n.toLowerCase());
     if (!c) db.custom.push(c = { id: 'custom-' + Date.now(), n });
     addEx(c);
+  } else if (f.id === 'rf') {
+    if (!draft.ex.length) return toast('Add at least one exercise');
+    draft.name = draft.name.trim();
+    const i = db.routines.findIndex(r => r.id === draft.id);
+    if (i < 0) db.routines.push({ ...draft, id: 'r' + Date.now() }); else db.routines[i] = draft;
+    save(); go('home'); toast('Routine saved');
   }
 });
 
 document.addEventListener('input', e => {
+  if (e.target.id === 'rname') draft.name = e.target.value;
   if (e.target.id !== 'q') return;
   query = e.target.value;
   document.getElementById('grid').innerHTML = grid();
