@@ -19,7 +19,7 @@ const rank = id => { const i = POPULAR.indexOf(id); return i < 0 ? POPULAR.lengt
 
 const app = document.getElementById('app');
 const sheet = document.getElementById('sheet');
-let EX = [], byId = new Map(), tab = 'All', query = '', flash = null, draft = null, pickFor = 'workout';
+let EX = [], byId = new Map(), tab = 'All', query = '', flash = null, draft = null, pickFor = 'workout', selDay = null;
 
 const db = (() => { try { return JSON.parse(localStorage.getItem('rep')) } catch { return null } })()
   || { workouts: [], active: null, custom: [] };
@@ -46,6 +46,8 @@ function dur(a, b = Date.now()) {
 const DAYS = [1, 2, 3, 4, 5, 6, 0]; // Mon first; numbers match Date.getDay()
 const dayName = d => ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'][d];
 const daysText = days => days.length ? DAYS.filter(d => days.includes(d)).map(dayName).join(', ') : 'No days set';
+const dayKey = d => new Date(d).toLocaleDateString('en-CA'); // local YYYY-MM-DD
+const monday = d => { const x = new Date(d); x.setHours(0, 0, 0, 0); x.setDate(x.getDate() - (x.getDay() + 6) % 7); return x };
 const setCount = w => w.ex.reduce((n, x) => n + x.sets.length, 0);
 const lastTime = id => db.workouts.find(w => w.ex.some(x => x.id === id))?.ex.find(x => x.id === id);
 const thumb = e => e?.i
@@ -74,14 +76,64 @@ function home() {
       <span class="stat"><b>${r.ex.length}</b>exercises</span>
     </button></li>`).join('')}</ul>` : ''}
   <button class="add-ex" data-act="new-routine">+ New routine</button>
-  <h2 class="sec">History</h2>
-  ${db.workouts.length ? `<ul class="hist">${db.workouts.map((w, i) => `
-    <li><button data-act="past" data-i="${i}">
-      <span class="d">${w.name ? `${esc(w.name)} <span class="dd">${day(w.start)}</span>` : day(w.start)}</span>
-      <span class="names">${esc(w.ex.map(x => x.n).join(', '))}</span>
-      <span class="stat"><b>${setCount(w)}</b>sets</span>
-    </button></li>`).join('')}</ul>`
-    : `<p class="empty">Your finished workouts will show up here.</p>`}`;
+  ${tabbar()}`;
+}
+
+function tabbar() {
+  const tab = (v, label, icon) => `<button data-act="nav" data-v="${v}"${view === v ? ' aria-current="page"' : ''}>
+    <svg viewBox="0 0 24 24" aria-hidden="true">${icon}</svg>${label}</button>`;
+  return `<nav class="tabbar">
+    ${tab('home', 'Home', '<path d="M4 10.5 12 4l8 6.5V20h-5v-6H9v6H4z"/>')}
+    ${tab('history', 'History', '<rect x="4" y="5" width="16" height="15" rx="2"/><path d="M4 10h16M9 3v4M15 3v4"/>')}
+  </nav>`;
+}
+
+// Week strip: swipe sideways between weeks (CSS scroll-snap), tap a day to see its workouts.
+function history() {
+  const today = dayKey(Date.now());
+  selDay ||= db.workouts.length ? dayKey(db.workouts[0].start) : today;
+  const done = new Set(db.workouts.map(w => dayKey(w.start)));
+  const last = monday(Date.now()), first = monday(db.workouts.at(-1)?.start ?? Date.now());
+  const start = new Date(Math.min(first, new Date(last).setDate(last.getDate() - 7 * 7))); // at least 8 weeks
+  const weeks = [];
+  for (const w = new Date(start); w <= last; w.setDate(w.getDate() + 7)) weeks.push(new Date(w));
+  const month = d => d.toLocaleDateString(undefined, { month: 'long', year: 'numeric' });
+  const sel = new Date(selDay + 'T12:00');
+  const list = db.workouts.map((w, i) => [w, i]).filter(([w]) => dayKey(w.start) === selDay);
+  return `
+  <header class="bar"><h1 class="mark">History</h1></header>
+  <h2 class="sec" id="month">${month(sel)}</h2>
+  <div class="strip" id="strip">${weeks.map(m => {
+    const thu = new Date(m); thu.setDate(m.getDate() + 3);
+    return `<div class="week" data-m="${month(thu)}">${[0, 1, 2, 3, 4, 5, 6].map(n => {
+      const d = new Date(m); d.setDate(m.getDate() + n);
+      const k = dayKey(d);
+      return `<button data-act="sel" data-k="${k}" aria-pressed="${k === selDay}"${k === today ? ' class="today"' : ''}${k > today ? ' disabled' : ''}
+        aria-label="${d.toLocaleDateString(undefined, { weekday: 'long', month: 'long', day: 'numeric' })}${done.has(k) ? ', workout logged' : ''}">
+        <small>${dayName(d.getDay())}</small><b>${d.getDate()}</b><i${done.has(k) ? ' class="dot"' : ''}></i></button>`;
+    }).join('')}</div>`;
+  }).join('')}</div>
+  <h2 class="sec">${selDay === today ? 'Today' : day(sel, true)}</h2>
+  ${list.length ? list.map(([w, i]) => `<section class="day-w">
+    <h3>${esc(w.name || 'Workout')}</h3>
+    <p class="sub">${time(w.start)}, ${dur(w.start, w.end)}, ${setCount(w)} sets</p>
+    ${pexList(w)}
+    <button class="txt danger" data-act="del-past" data-i="${i}">Delete workout</button>
+  </section>`).join('') : '<p class="empty">No workout logged.</p>'}
+  ${tabbar()}`;
+}
+
+function pexList(w) {
+  return w.ex.map(x => {
+    const top = x.sets.reduce((a, b) => (b.w > a.w || (b.w === a.w && b.r > a.r) ? b : a));
+    return `<details class="pex">
+      <summary>
+        <span class="thumb">${thumb(find(x.id))}</span>
+        <span><b>${esc(x.n)}</b><small>${x.sets.length} ${x.sets.length === 1 ? 'set' : 'sets'}, top ${lbs(top.w)} × ${top.r}</small></span>
+      </summary>
+      ${setRows(x, -1, false)}
+    </details>`;
+  }).join('');
 }
 
 function setRows(x, i, editable) {
@@ -177,7 +229,9 @@ function grid() {
 
 function render() {
   app.dataset.view = view;
-  app.innerHTML = { home, workout, picker, routine }[view]();
+  app.innerHTML = { home, workout, picker, routine, history }[view]();
+  const strip = document.getElementById('strip');
+  if (strip) strip.scrollLeft = strip.querySelector('[aria-pressed=true]').parentElement.offsetLeft;
   flash = null;
 }
 function go(v) { view = v; render(); scrollTo(0, 0) }
@@ -305,26 +359,11 @@ const act = {
     db.workouts.unshift(a); db.active = null; save();
     go('home'); toast('Workout saved');
   },
-  past(b) {
-    const w = db.workouts[b.dataset.i];
-    open(`
-      <h2>${w.name ? esc(w.name) : day(w.start, true)}</h2>
-      <p class="sub">${w.name ? day(w.start, true) + ', ' : ''}${time(w.start)}, ${dur(w.start, w.end)}</p>
-      ${w.ex.map(x => {
-        const top = x.sets.reduce((a, b) => (b.w > a.w || (b.w === a.w && b.r > a.r) ? b : a));
-        return `<details class="pex">
-          <summary>
-            <span class="thumb">${thumb(find(x.id))}</span>
-            <span><b>${esc(x.n)}</b><small>${x.sets.length} ${x.sets.length === 1 ? 'set' : 'sets'}, top ${lbs(top.w)} × ${top.r}</small></span>
-          </summary>
-          ${setRows(x, -1, false)}
-        </details>`;
-      }).join('')}
-      <div class="sheet-foot"><button class="ghost danger" data-act="del-past" data-i="${b.dataset.i}">Delete workout</button></div>`);
-  },
+  nav(b) { go(b.dataset.v) },
+  sel(b) { selDay = b.dataset.k; render() },
   'del-past'(b) {
     if (!confirm("Delete this workout? This can't be undone.")) return;
-    db.workouts.splice(b.dataset.i, 1); save(); sheet.close(); render(); toast('Workout deleted');
+    db.workouts.splice(b.dataset.i, 1); save(); render(); toast('Workout deleted');
   },
 };
 
@@ -361,6 +400,13 @@ document.addEventListener('input', e => {
   query = e.target.value;
   document.getElementById('grid').innerHTML = grid();
 });
+
+// Keep the month label in step with the week you've swiped to.
+document.addEventListener('scroll', e => {
+  if (e.target.id !== 'strip') return;
+  const wk = e.target.children[Math.round(e.target.scrollLeft / e.target.clientWidth)];
+  if (wk) document.getElementById('month').textContent = wk.dataset.m;
+}, true);
 
 // Offline or missing photo: show the grey tile instead of a broken-image icon.
 document.addEventListener('error', e => { if (e.target.tagName === 'IMG') e.target.style.visibility = 'hidden' }, true);
