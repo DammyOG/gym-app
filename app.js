@@ -1,4 +1,15 @@
 const IMG = 'https://cdn.jsdelivr.net/gh/yuhonas/free-exercise-db@main/exercises/';
+// RepDB's license allows in-app use but not republishing, so it's loaded from their repo rather than copied into ours.
+const REPDB = 'https://cdn.jsdelivr.net/gh/sergei-argutin/exercise-dataset@main/';
+const REPDB_MUSCLE = [[/abdom|oblique/, 'abdominals'], [/hamstring/, 'hamstrings'], [/quad|hip_flexor/, 'quadriceps'],
+  [/latissimus/, 'lats'], [/pectoral|serratus/, 'chest'], [/deltoid|rotator/, 'shoulders'], [/triceps/, 'triceps'],
+  [/erector/, 'lower back'], [/adductor/, 'adductors'], [/abductor/, 'abductors'], [/gastroc|soleus|tibialis/, 'calves'],
+  [/glute/, 'glutes'], [/biceps|brachi/, 'biceps'], [/rhomboid/, 'middle back'], [/trapez/, 'traps'], [/forearm|wrist/, 'forearms'], [/neck/, 'neck']];
+const fromRepdb = x => ({
+  id: 'repdb-' + x.id, n: x.name_en || '', e: (x.equipment || 'body only').replace(/_/g, ' '), s: x.instructions_en || [],
+  m: [...new Set((x.primary_muscles || []).map(m => REPDB_MUSCLE.find(([re]) => re.test(m))?.[1]).filter(Boolean))],
+  i: [x.images?.flat?.start, x.images?.flat?.peak].filter(Boolean).map(p => REPDB + p),
+});
 const GROUPS = {
   All: null,
   Chest: ['chest'],
@@ -25,7 +36,7 @@ const db = (() => { try { return JSON.parse(localStorage.getItem('rep')) } catch
   || { workouts: [], active: null, custom: [] };
 db.routines ||= [];
 let view = db.active ? 'workout' : 'home';
-if (!db.active && !db.onboarded && !db.workouts.length && !db.routines.length) { quiz = { step: 0, days: [] }; view = 'quiz' }
+if (!db.active && !db.onboarded && !db.workouts.length && !db.routines.length) { quiz = { step: 0, days: [], goals: [], focus: [], perDay: 6 }; view = 'quiz' }
 
 function save() {
   try { localStorage.setItem('rep', JSON.stringify(db)) }
@@ -49,11 +60,12 @@ const dayName = d => ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'][d];
 const daysText = days => days.length ? DAYS.filter(d => days.includes(d)).map(dayName).join(', ') : 'No days set';
 const dayKey = d => new Date(d).toLocaleDateString('en-CA'); // local YYYY-MM-DD
 const monday = d => { const x = new Date(d); x.setHours(0, 0, 0, 0); x.setDate(x.getDate() - (x.getDay() + 6) % 7); return x };
-const tgt = t => `${t.s} × ${t.r}`;
+const tgt = t => (t.s > 1 ? `${t.s} × ${t.r}` : t.r);
 const setCount = w => w.ex.reduce((n, x) => n + x.sets.length, 0);
 const lastTime = id => db.workouts.find(w => w.ex.some(x => x.id === id))?.ex.find(x => x.id === id);
-const thumb = e => e?.i
-  ? `<img src="${IMG + e.i[0]}" crossorigin="anonymous" loading="lazy" alt="">`
+const pic = (p, attrs = '') => `<img src="${p.startsWith('http') ? p : IMG + p}"${p.includes('wger.de') ? '' : ' crossorigin="anonymous"'} ${attrs}>`;
+const thumb = e => e?.i?.length
+  ? pic(e.i[0], 'loading="lazy" alt=""')
   : `<div class="ph">${esc((e?.n || '?')[0])}</div>`;
 
 function toast(msg) {
@@ -79,6 +91,8 @@ function home() {
     </button></li>`).join('')}</ul>` : ''}
   <button class="add-ex" data-act="new-routine">+ New routine</button>
   <button class="link" data-act="quiz">Get a recommended plan</button>
+  <p class="credits">Exercise data by <a href="https://repdb.co">RepDB (repdb.co)</a>, <a href="https://wger.de">wger.de</a>
+    (<a href="https://creativecommons.org/licenses/by-sa/3.0/">CC BY-SA 3.0</a>) and <a href="https://github.com/yuhonas/free-exercise-db">free-exercise-db</a>.</p>
   ${tabbar()}`;
 }
 
@@ -236,9 +250,12 @@ function grid() {
 
 const QUIZ = [
   { k: 'exp', q: 'How long have you been lifting?', o: [['beginner', 'Under 6 months'], ['intermediate', '6 months to 2 years'], ['advanced', 'More than 2 years']] },
-  { k: 'goal', q: "What's your main goal?", o: [['muscle', 'Build muscle'], ['strength', 'Get stronger'], ['fitness', 'Get fit and stay active']] },
-  { k: 'focus', q: 'Anything you want to prioritize?', o: [['none', 'No, keep it balanced'], ['chest', 'Chest'], ['back', 'Back'], ['shoulders', 'Shoulders'], ['arms', 'Arms'], ['legs', 'Legs'], ['glutes', 'Glutes'], ['core', 'Core']] },
+  { k: 'goals', multi: true, q: 'What are your goals?', sub: 'Pick all that apply.',
+    o: [['muscle', 'Build muscle'], ['strength', 'Get stronger'], ['endurance', 'Improve endurance and cardio'], ['mobility', 'Improve flexibility and mobility'], ['fatloss', 'Lose fat']] },
+  { k: 'focus', multi: true, q: 'Any muscles to prioritize?', sub: 'Pick any, or skip for a balanced plan.',
+    o: [['chest', 'Chest'], ['back', 'Back'], ['shoulders', 'Shoulders'], ['arms', 'Arms'], ['legs', 'Legs'], ['glutes', 'Glutes'], ['core', 'Core']] },
   { k: 'equip', q: 'What equipment do you have?', o: [['gym', 'A full gym'], ['db', 'Dumbbells only'], ['bw', 'Just my bodyweight']] },
+  { k: 'perDay', q: 'How many exercises per session?', sub: 'Stretches and cardio count too. You can change this later.' },
 ];
 const makePlan = () => buildPlan({ ...quiz, days: DAYS.filter(d => quiz.days.includes(d)) })
   .map((r, i) => ({ ...r, id: `r${Date.now()}${i}`, ex: r.ex.map(x => ({ ...x, n: find(x.id)?.n || x.id })) }));
@@ -259,15 +276,25 @@ function quizView() {
     <div class="foot"><button class="go" data-act="q-next"${n >= 2 && n <= 6 ? '' : ' disabled'}>Continue</button></div>`;
   }
   if (st < last) {
-    const { k, q, o } = QUIZ[st - 1];
+    const { k, q, o, multi, sub } = QUIZ[st - 1];
+    if (k === 'perDay') return `${head}
+    <h1 class="q">${q}</h1>
+    <p class="sub">${sub}</p>
+    <select id="perday" class="wheel" aria-label="Exercises per session">${[4, 5, 6, 7, 8, 9, 10].map(n =>
+      `<option value="${n}"${n === quiz.perDay ? ' selected' : ''}>${n} exercises</option>`).join('')}</select>
+    <div class="foot"><button class="go" data-act="q-next">Continue</button></div>`;
+    const on = v => (multi ? quiz[k].includes(v) : quiz[k] === v);
     return `${head}
     <h1 class="q">${q}</h1>
-    <div class="opts">${o.map(([v, l]) => `<button data-act="q-pick" data-v="${v}" aria-pressed="${quiz[k] === v}">${l}</button>`).join('')}</div>`;
+    ${sub ? `<p class="sub">${sub}</p>` : ''}
+    <div class="opts${multi ? ' multi' : ''}">${o.map(([v, l]) => `<button data-act="${multi ? 'q-toggle' : 'q-pick'}" data-v="${v}" aria-pressed="${on(v)}">${l}</button>`).join('')}</div>
+    ${multi ? `<div class="foot"><button class="go" data-act="q-next"${k === 'goals' && !quiz.goals.length ? ' disabled' : ''}>${
+      k === 'focus' && !quiz.focus.length ? 'Skip, keep it balanced' : 'Continue'}</button></div>` : ''}`;
   }
   const plan = makePlan();
   return `${head}
   <h1 class="q">Your plan</h1>
-  <p class="sub">${splitLabel(plan.length, quiz.alt)}, ${plan.length} days a week. You can change anything after saving.</p>
+  <p class="sub">${splitLabel(plan.length, quiz.alt)}, ${plan.length} days a week, up to ${quiz.perDay} exercises a session. You can change anything after saving.</p>
   ${hasAlt(plan.length) ? `<nav class="tabs seg">
     <button data-act="q-alt" aria-pressed="${!quiz.alt}">${splitLabel(plan.length)}</button>
     <button data-act="q-alt" data-alt="1" aria-pressed="${!!quiz.alt}">${splitLabel(plan.length, true)}</button>
@@ -324,7 +351,9 @@ sheet.addEventListener('touchend', () => {
 function info(id) {
   const e = find(id);
   open(`
-    <div class="media">${e.i ? `<img src="${IMG + e.i[0]}" crossorigin="anonymous" alt="${esc(e.n)}, start position"><img class="b" src="${IMG + e.i[1]}" crossorigin="anonymous" alt="${esc(e.n)}, end position">` : thumb(e)}</div>
+    <div class="media">${e.i?.length
+      ? pic(e.i[0], `alt="${esc(e.n)}, start position"`) + (e.i[1] ? pic(e.i[1], `class="b" alt="${esc(e.n)}, end position"`) : '')
+      : thumb(e)}</div>
     <h2>${esc(e.n)}</h2>
     ${e.m ? `<ul class="chips">${[...e.m, e.e].filter(Boolean).map(c => `<li>${esc(c)}</li>`).join('')}</ul>` : ''}
     ${e.s?.length ? `<ol class="steps">${e.s.map(s => `<li>${esc(s)}</li>`).join('')}</ol>` : ''}
@@ -411,13 +440,18 @@ const act = {
     go('home'); toast('Workout saved');
   },
   nav(b) { go(b.dataset.v) },
-  quiz() { quiz = { step: 0, days: [] }; go('quiz') },
+  quiz() { quiz = { step: 0, days: [], goals: [], focus: [], perDay: 6 }; go('quiz') },
   'q-skip'() { db.onboarded = true; save(); quiz = null; go('home') },
   'q-back'() { quiz.step--; go('quiz') },
   'q-next'() { quiz.step++; go('quiz') },
   'q-day'(b) {
     const d = +b.dataset.d;
     quiz.days = quiz.days.includes(d) ? quiz.days.filter(x => x !== d) : [...quiz.days, d];
+    render();
+  },
+  'q-toggle'(b) {
+    const k = QUIZ[quiz.step - 1].k, v = b.dataset.v;
+    quiz[k] = quiz[k].includes(v) ? quiz[k].filter(x => x !== v) : [...quiz[k], v];
     render();
   },
   'q-alt'(b) { quiz.alt = !!b.dataset.alt; render() },
@@ -463,6 +497,8 @@ document.addEventListener('submit', e => {
   }
 });
 
+document.addEventListener('change', e => { if (e.target.id === 'perday') quiz.perDay = +e.target.value });
+
 document.addEventListener('input', e => {
   if (e.target.id === 'rname') draft.name = e.target.value;
   const { f, i } = e.target.dataset;
@@ -491,8 +527,25 @@ setInterval(() => {
 }, 30000);
 
 render();
-fetch('exercises.json').then(r => r.json()).then(d => {
-  EX = d.sort((a, b) => rank(a.id) - rank(b.id)); byId = new Map(d.map(e => [e.id, e]));
+// Sources merge in order; the first to claim a name keeps it, so saved free-exercise-db ids never change.
+const nameKey = n => n.toLowerCase().replace(/[^a-z]/g, '').replace(/s$/, '');
+function addExercises(list) {
+  const seen = new Set(EX.map(e => nameKey(e.n)));
+  for (const e of list) {
+    const k = nameKey(e.n);
+    if (!k || seen.has(k)) continue;
+    seen.add(k); EX.push(e); byId.set(e.id, e);
+  }
+  EX.sort((a, b) => rank(a.id) - rank(b.id) || a.n.localeCompare(b.n));
+}
+const getJSON = url => fetch(url).then(r => r.json()).catch(() => null);
+getJSON('exercises.json').then(async d => {
+  addExercises(d || []);
   render();
+  const [rep, wger] = await Promise.all([getJSON(REPDB + 'exercises.json'), getJSON('wger.json')]);
+  for (const list of [() => rep.exercises.map(fromRepdb), () => wger]) {
+    try { addExercises(list()) } catch (err) { console.warn('Skipped an exercise source', err) }
+  }
+  if (view === 'picker') document.getElementById('grid').innerHTML = grid();
 });
 if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js');
