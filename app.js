@@ -184,11 +184,37 @@ function go(v) { view = v; render(); scrollTo(0, 0) }
 
 // --- sheets ---
 function open(html) {
-  sheet.innerHTML = `<div class="sheet-in"><div class="grab"${html.includes('autofocus') ? '' : ' tabindex="-1" autofocus'}></div>${html}</div>`;
+  sheet.innerHTML = `<div class="sheet-in">
+    <div class="sheet-top"><button class="x" data-act="close" aria-label="Close">×</button></div>
+    <div class="grab"${html.includes('autofocus') ? '' : ' tabindex="-1" autofocus'}></div>${html}</div>`;
   sheet.showModal();
   sheet.scrollTop = 0;
 }
 sheet.addEventListener('click', e => e.target === sheet && sheet.close());
+
+// Drag down to close, but only from the top; otherwise the sheet's own content scrolls.
+let drag = null;
+sheet.addEventListener('touchstart', e => {
+  drag = sheet.scrollTop <= 0 ? { y: e.touches[0].clientY, dy: 0 } : null;
+}, { passive: true });
+sheet.addEventListener('touchmove', e => {
+  if (!drag) return;
+  drag.dy = e.touches[0].clientY - drag.y;
+  if (drag.dy < 0) { drag = null; sheet.style.transform = ''; return }
+  e.preventDefault();
+  sheet.style.transform = `translateY(${drag.dy}px)`;
+}, { passive: false });
+sheet.addEventListener('touchend', () => {
+  if (!drag) return;
+  const shut = drag.dy > 90;
+  drag = null;
+  sheet.style.transition = 'transform .2s';
+  sheet.style.transform = shut ? 'translateY(100%)' : '';
+  setTimeout(() => {
+    sheet.style.transition = '';
+    if (shut) { sheet.close(); sheet.style.transform = '' }
+  }, 200);
+});
 
 function info(id) {
   const e = find(id);
@@ -282,9 +308,18 @@ const act = {
   past(b) {
     const w = db.workouts[b.dataset.i];
     open(`
-      <h2>${day(w.start, true)}</h2>
-      <p class="sub">${time(w.start)}, ${dur(w.start, w.end)}</p>
-      ${w.ex.map(x => `<section class="past"><h3>${esc(x.n)}</h3>${setRows(x, -1, false)}</section>`).join('')}
+      <h2>${w.name ? esc(w.name) : day(w.start, true)}</h2>
+      <p class="sub">${w.name ? day(w.start, true) + ', ' : ''}${time(w.start)}, ${dur(w.start, w.end)}</p>
+      ${w.ex.map(x => {
+        const top = x.sets.reduce((a, b) => (b.w > a.w || (b.w === a.w && b.r > a.r) ? b : a));
+        return `<details class="pex">
+          <summary>
+            <span class="thumb">${thumb(find(x.id))}</span>
+            <span><b>${esc(x.n)}</b><small>${x.sets.length} ${x.sets.length === 1 ? 'set' : 'sets'}, top ${lbs(top.w)} × ${top.r}</small></span>
+          </summary>
+          ${setRows(x, -1, false)}
+        </details>`;
+      }).join('')}
       <div class="sheet-foot"><button class="ghost danger" data-act="del-past" data-i="${b.dataset.i}">Delete workout</button></div>`);
   },
   'del-past'(b) {

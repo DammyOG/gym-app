@@ -14,7 +14,7 @@
 }
 
 * { box-sizing: border-box; margin: 0; }
-html { background: var(--bg); -webkit-text-size-adjust: 100%; }
+html { overscroll-behavior-y: none; background: var(--bg); -webkit-text-size-adjust: 100%; }
 body {
   min-height: 100dvh;
   padding: 0 max(var(--pad), env(safe-area-inset-right)) calc(env(safe-area-inset-bottom) + 32px) max(var(--pad), env(safe-area-inset-left));
@@ -220,9 +220,12 @@ h3 { font-size: 19px; font-weight: 700; font-stretch: 85%; line-height: 1.2; }
   color: var(--text);
 }
 #sheet[open] { animation: up .3s cubic-bezier(.2, .8, .2, 1); }
+body:has(#sheet[open]) { overflow: hidden; }
 #sheet::backdrop { background: rgba(0, 0, 0, .65); }
 @keyframes up { from { transform: translateY(100%); } }
 .sheet-in { padding: 8px var(--pad) calc(env(safe-area-inset-bottom) + 16px); }
+.sheet-top { position: sticky; top: 8px; z-index: 2; display: flex; justify-content: flex-end; height: 0; }
+.sheet-top .x { margin-right: -4px; background: var(--raise-2); color: var(--text); font-size: 22px; }
 .grab { outline: 0; width: 36px; height: 5px; margin: 0 auto 14px; border-radius: 3px; background: #3a3a3a; }
 #sheet h2 { margin: 16px 0 10px; font-size: 32px; font-weight: 800; font-stretch: 68%; line-height: 1.05; }
 .sheet-foot { position: sticky; bottom: 0; padding: 20px 0 4px; background: linear-gradient(transparent, var(--raise) 40%); }
@@ -251,9 +254,16 @@ h3 { font-size: 19px; font-weight: 700; font-stretch: 85%; line-height: 1.2; }
 }
 .rf input:focus, .new input:focus { border-color: var(--lime); outline: 0; }
 
-.past { padding: 14px 0; border-bottom: 1px solid var(--line); }
-.past .sets li { min-height: 40px; }
-.past .sets b { font-size: 30px; }
+.pex { border-bottom: 1px solid var(--line); }
+.pex summary { display: grid; grid-template-columns: 56px 1fr 20px; gap: 12px; align-items: center; padding: 8px 0; list-style: none; cursor: pointer; }
+.pex summary::-webkit-details-marker { display: none; }
+.pex summary::after { content: '›'; color: var(--mute); font-size: 24px; transition: rotate .2s; }
+.pex[open] summary::after { rotate: 90deg; }
+.pex summary b { display: block; font-weight: 600; line-height: 1.25; }
+.pex summary small { color: var(--mute); font-size: 13px; }
+.pex .sets { margin: 0 0 10px; padding-left: 68px; }
+.pex .sets li { min-height: 40px; }
+.pex .sets b { font-size: 30px; }
 
 .toast {
   position: fixed;
