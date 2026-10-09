@@ -334,3 +334,25 @@ body:has(#sheet[open]) { overflow: hidden; }
 .day-w + .day-w { margin-top: 24px; }
 .day-w .sub { margin-bottom: 4px; }
 .day-w .danger { margin-top: 8px; }
+
+/* onboarding quiz */
+.prog { display: block; width: 120px; height: 4px; overflow: hidden; border-radius: 2px; background: var(--raise-2); }
+.prog i { display: block; height: 100%; background: var(--lime); transition: width .3s; }
+.q { margin: 28px 0 10px; font-size: 44px; font-weight: 800; font-stretch: 62%; line-height: 1; }
+.q-days { margin-top: 28px; }
+.opts { display: grid; gap: 10px; margin-top: 28px; }
+.opts button { min-height: 64px; padding: 0 20px; border: 1px solid var(--line); border-radius: var(--r); background: var(--raise); font-size: 18px; font-weight: 600; text-align: left; }
+.opts [aria-pressed=true] { border-color: var(--lime); color: var(--lime); }
+.foot { position: sticky; bottom: 0; margin-top: 24px; padding: 20px 0 calc(env(safe-area-inset-bottom) + 8px); background: linear-gradient(transparent, var(--bg) 35%); }
+.go:disabled { opacity: .35; }
+.seg { margin-top: 16px; }
+.plan-r { margin-top: 28px; }
+.plan-r h3 span { margin-left: 8px; color: var(--mute); font-size: 15px; font-weight: 500; font-stretch: 100%; }
+.link { display: block; width: 100%; margin-top: 8px; padding: 14px; color: var(--text); font-weight: 600; text-decoration: underline; text-underline-offset: 3px; text-decoration-color: var(--line); }
+
+/* targets */
+.rex small { display: block; margin-top: 2px; color: var(--mute); font-size: 13px; font-weight: 500; }
+.tg { display: flex; align-items: center; gap: 6px; margin-top: 6px; color: var(--mute); font-size: 13px; font-weight: 500; }
+.tg input { color: var(--text); width: 56px; height: 36px; border: 1px solid var(--line); border-radius: 8px; background: var(--raise); font-size: 16px; text-align: center; }
+.tg input:focus { border-color: var(--lime); outline: 0; }
+.prev.tgt { color: var(--text); }

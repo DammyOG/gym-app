@@ -19,12 +19,13 @@ const rank = id => { const i = POPULAR.indexOf(id); return i < 0 ? POPULAR.lengt
 
 const app = document.getElementById('app');
 const sheet = document.getElementById('sheet');
-let EX = [], byId = new Map(), tab = 'All', query = '', flash = null, draft = null, pickFor = 'workout', selDay = null;
+let EX = [], byId = new Map(), tab = 'All', query = '', flash = null, draft = null, pickFor = 'workout', selDay = null, quiz = null;
 
 const db = (() => { try { return JSON.parse(localStorage.getItem('rep')) } catch { return null } })()
   || { workouts: [], active: null, custom: [] };
 db.routines ||= [];
 let view = db.active ? 'workout' : 'home';
+if (!db.active && !db.onboarded && !db.workouts.length && !db.routines.length) { quiz = { step: 0, days: [] }; view = 'quiz' }
 
 function save() {
   try { localStorage.setItem('rep', JSON.stringify(db)) }
@@ -48,6 +49,7 @@ const dayName = d => ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'][d];
 const daysText = days => days.length ? DAYS.filter(d => days.includes(d)).map(dayName).join(', ') : 'No days set';
 const dayKey = d => new Date(d).toLocaleDateString('en-CA'); // local YYYY-MM-DD
 const monday = d => { const x = new Date(d); x.setHours(0, 0, 0, 0); x.setDate(x.getDate() - (x.getDay() + 6) % 7); return x };
+const tgt = t => `${t.s} × ${t.r}`;
 const setCount = w => w.ex.reduce((n, x) => n + x.sets.length, 0);
 const lastTime = id => db.workouts.find(w => w.ex.some(x => x.id === id))?.ex.find(x => x.id === id);
 const thumb = e => e?.i
@@ -76,6 +78,7 @@ function home() {
       <span class="stat"><b>${r.ex.length}</b>exercises</span>
     </button></li>`).join('')}</ul>` : ''}
   <button class="add-ex" data-act="new-routine">+ New routine</button>
+  <button class="link" data-act="quiz">Get a recommended plan</button>
   ${tabbar()}`;
 }
 
@@ -146,12 +149,13 @@ function setRows(x, i, editable) {
 
 function block(x, i) {
   const prev = lastTime(x.id);
-  const seed = x.sets.at(-1) || prev?.sets[0] || { w: '', r: '' };
+  const seed = x.sets.at(-1) || prev?.sets[0] || { w: '', r: parseInt(x.t?.r) || '' };
   return `<section class="ex">
     <div class="ex-head">
       <button class="thumb" data-act="info" data-id="${esc(x.id)}" aria-label="About ${esc(x.n)}">${thumb(find(x.id))}</button>
       <div>
         <h3>${esc(x.n)}</h3>
+        ${x.t ? `<p class="prev tgt">Target ${tgt(x.t)}, ${x.sets.length} of ${x.t.s} done</p>` : ''}
         ${prev ? `<p class="prev">Last time ${prev.sets.map(s => `${lbs(s.w)}×${s.r}`).join(', ')}</p>` : ''}
       </div>
       <button class="x" data-act="rm-ex" data-i="${i}" aria-label="Remove ${esc(x.n)}">×</button>
@@ -199,7 +203,10 @@ function routine() {
 function rexList(ex, editable) {
   return ex.length ? `<ul class="rex">${ex.map((x, i) => `<li>
     <button class="thumb" data-act="info" data-id="${esc(x.id)}" aria-label="About ${esc(x.n)}">${thumb(find(x.id))}</button>
-    <span>${esc(x.n)}</span>
+    <span>${esc(x.n)}${editable
+      ? `<span class="tg"><input data-i="${i}" data-f="s" inputmode="numeric" value="${x.t?.s ?? ''}" placeholder="3" aria-label="Target sets for ${esc(x.n)}">sets ×
+         <input data-i="${i}" data-f="r" value="${esc(x.t?.r ?? '')}" placeholder="8–12" aria-label="Target reps for ${esc(x.n)}">reps</span>`
+      : x.t ? `<small>${tgt(x.t)}</small>` : ''}</span>
     ${editable ? `<button class="x" data-act="rm-rex" data-i="${i}" aria-label="Remove ${esc(x.n)}">×</button>` : ''}
   </li>`).join('')}</ul>` : '';
 }
@@ -227,9 +234,53 @@ function grid() {
     + `<button class="custom" data-act="custom">Can't find it?<b>Add ${terms.length ? `“${esc(query.trim())}”` : 'your own exercise'}</b></button>`;
 }
 
+const QUIZ = [
+  { k: 'exp', q: 'How long have you been lifting?', o: [['beginner', 'Under 6 months'], ['intermediate', '6 months to 2 years'], ['advanced', 'More than 2 years']] },
+  { k: 'goal', q: "What's your main goal?", o: [['muscle', 'Build muscle'], ['strength', 'Get stronger'], ['fitness', 'Get fit and stay active']] },
+  { k: 'focus', q: 'Anything you want to prioritize?', o: [['none', 'No, keep it balanced'], ['chest', 'Chest'], ['back', 'Back'], ['shoulders', 'Shoulders'], ['arms', 'Arms'], ['legs', 'Legs'], ['glutes', 'Glutes'], ['core', 'Core']] },
+  { k: 'equip', q: 'What equipment do you have?', o: [['gym', 'A full gym'], ['db', 'Dumbbells only'], ['bw', 'Just my bodyweight']] },
+];
+const makePlan = () => buildPlan({ ...quiz, days: DAYS.filter(d => quiz.days.includes(d)) })
+  .map((r, i) => ({ ...r, id: `r${Date.now()}${i}`, ex: r.ex.map(x => ({ ...x, n: find(x.id)?.n || x.id })) }));
+
+function quizView() {
+  const st = quiz.step, last = QUIZ.length + 1;
+  const head = `<header class="bar">
+    <button class="txt" data-act="${st ? 'q-back' : 'q-skip'}">${st ? 'Back' : 'Skip'}</button>
+    <div class="ttl"><span class="prog"><i style="width:${(st + 1) / (last + 1) * 100}%"></i></span></div>
+    <span></span>
+  </header>`;
+  if (st === 0) {
+    const n = quiz.days.length;
+    return `${head}
+    <h1 class="q">Which days can you train?</h1>
+    <p class="sub">Pick 2 to 6. Your plan is built around them.</p>
+    <div class="days q-days">${DAYS.map(d => `<button data-act="q-day" data-d="${d}" aria-pressed="${quiz.days.includes(d)}">${dayName(d)}</button>`).join('')}</div>
+    <div class="foot"><button class="go" data-act="q-next"${n >= 2 && n <= 6 ? '' : ' disabled'}>Continue</button></div>`;
+  }
+  if (st < last) {
+    const { k, q, o } = QUIZ[st - 1];
+    return `${head}
+    <h1 class="q">${q}</h1>
+    <div class="opts">${o.map(([v, l]) => `<button data-act="q-pick" data-v="${v}" aria-pressed="${quiz[k] === v}">${l}</button>`).join('')}</div>`;
+  }
+  const plan = makePlan();
+  return `${head}
+  <h1 class="q">Your plan</h1>
+  <p class="sub">${splitLabel(plan.length, quiz.alt)}, ${plan.length} days a week. You can change anything after saving.</p>
+  ${hasAlt(plan.length) ? `<nav class="tabs seg">
+    <button data-act="q-alt" aria-pressed="${!quiz.alt}">${splitLabel(plan.length)}</button>
+    <button data-act="q-alt" data-alt="1" aria-pressed="${!!quiz.alt}">${splitLabel(plan.length, true)}</button>
+  </nav>` : ''}
+  ${plan.map(r => `<section class="plan-r"><h3>${esc(r.name)}<span>${daysText(r.days)}</span></h3>${rexList(r.ex, false)}</section>`).join('')}
+  <div class="foot${db.routines.length ? ' two' : ''}">${db.routines.length
+    ? '<button class="ghost" data-act="q-use" data-mode="add">Add to mine</button><button class="go" data-act="q-use">Replace my routines</button>'
+    : '<button class="go" data-act="q-use">Use this plan</button>'}</div>`;
+}
+
 function render() {
   app.dataset.view = view;
-  app.innerHTML = { home, workout, picker, routine, history }[view]();
+  app.innerHTML = { home, workout, picker, routine, history, quiz: quizView }[view]();
   const strip = document.getElementById('strip');
   if (strip) strip.scrollLeft = strip.querySelector('[aria-pressed=true]').parentElement.offsetLeft;
   flash = null;
@@ -312,7 +363,7 @@ const act = {
     sheet.close();
     if (db.active) { go('workout'); return toast('Finish this workout first') }
     const r = db.routines.find(r => r.id === b.dataset.id);
-    db.active = { start: new Date().toISOString(), name: r.name, ex: r.ex.map(x => ({ id: x.id, n: x.n, sets: [] })) };
+    db.active = { start: new Date().toISOString(), name: r.name, ex: r.ex.map(x => ({ id: x.id, n: x.n, t: x.t, sets: [] })) };
     save(); go('workout');
   },
   day(b) {
@@ -360,6 +411,23 @@ const act = {
     go('home'); toast('Workout saved');
   },
   nav(b) { go(b.dataset.v) },
+  quiz() { quiz = { step: 0, days: [] }; go('quiz') },
+  'q-skip'() { db.onboarded = true; save(); quiz = null; go('home') },
+  'q-back'() { quiz.step--; go('quiz') },
+  'q-next'() { quiz.step++; go('quiz') },
+  'q-day'(b) {
+    const d = +b.dataset.d;
+    quiz.days = quiz.days.includes(d) ? quiz.days.filter(x => x !== d) : [...quiz.days, d];
+    render();
+  },
+  'q-alt'(b) { quiz.alt = !!b.dataset.alt; render() },
+  'q-pick'(b) { quiz[QUIZ[quiz.step - 1].k] = b.dataset.v; quiz.step++; go('quiz') },
+  'q-use'(b) {
+    const plan = makePlan();
+    db.routines = b.dataset.mode === 'add' ? [...db.routines, ...plan] : plan;
+    db.onboarded = true; quiz = null; save();
+    go('home'); toast('Plan saved');
+  },
   sel(b) { selDay = b.dataset.k; render() },
   'del-past'(b) {
     if (!confirm("Delete this workout? This can't be undone.")) return;
@@ -388,6 +456,7 @@ document.addEventListener('submit', e => {
   } else if (f.id === 'rf') {
     if (!draft.ex.length) return toast('Add at least one exercise');
     draft.name = draft.name.trim();
+    draft.ex.forEach(x => { if (!x.t?.s || !x.t?.r) delete x.t });
     const i = db.routines.findIndex(r => r.id === draft.id);
     if (i < 0) db.routines.push({ ...draft, id: 'r' + Date.now() }); else db.routines[i] = draft;
     save(); go('home'); toast('Routine saved');
@@ -396,6 +465,11 @@ document.addEventListener('submit', e => {
 
 document.addEventListener('input', e => {
   if (e.target.id === 'rname') draft.name = e.target.value;
+  const { f, i } = e.target.dataset;
+  if (f && draft) {
+    const x = draft.ex[i];
+    x.t = { ...x.t, [f]: f === 's' ? parseInt(e.target.value) || '' : e.target.value.trim() };
+  }
   if (e.target.id !== 'q') return;
   query = e.target.value;
   document.getElementById('grid').innerHTML = grid();

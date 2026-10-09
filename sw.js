@@ -1,6 +1,6 @@
 // Stale-while-revalidate: serve from cache instantly, refresh the cache in the background.
 const CACHE = 'rep-v1';
-const SHELL = ['./', 'index.html', 'style.css', 'app.js', 'exercises.json', 'manifest.json', 'icon.png'];
+const SHELL = ['./', 'index.html', 'style.css', 'plan.js', 'app.js', 'exercises.json', 'manifest.json', 'icon.png'];
 
 self.addEventListener('install', e => {
   e.waitUntil(caches.open(CACHE).then(c => c.addAll(SHELL)));
