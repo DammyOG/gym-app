@@ -148,51 +148,112 @@ function pexList(w) {
         <span class="thumb">${thumb(find(x.id))}</span>
         <span><b>${esc(x.n)}</b><small>${x.sets.length} ${x.sets.length === 1 ? 'set' : 'sets'}, top ${lbs(top.w)} × ${top.r}</small></span>
       </summary>
-      ${setRows(x, -1, false)}
+      ${setRows(x)}
     </details>`;
   }).join('');
 }
 
-function setRows(x, i, editable) {
+function setRows(x) {
   return `<ol class="sets">${x.sets.map((s, j) => `
-    <li${flash && flash[0] === i && flash[1] === j ? ' class="new"' : ''}>
-      <span class="n">${j + 1}</span><b>${lbs(s.w)}</b><small>${s.w > 0 ? 'lbs' : ''}</small><i>×</i><b>${s.r}</b><small>reps</small>
-      ${editable ? `<button class="x" data-act="rm-set" data-i="${i}" data-j="${j}" aria-label="Delete set ${j + 1}">×</button>` : ''}
-    </li>`).join('')}</ol>`;
+    <li><span class="n">${j + 1}</span><b>${lbs(s.w)}</b><small>${s.w > 0 ? 'lbs' : ''}</small><i>×</i><b>${s.r}</b><small>${unit(x)}</small></li>`).join('')}</ol>`;
 }
 
-function block(x, i) {
-  const prev = lastTime(x.id);
-  const seed = x.sets.at(-1) || prev?.sets[0] || { w: '', r: parseInt(x.t?.r) || '' };
-  return `<section class="ex">
-    <div class="ex-head">
-      <button class="thumb" data-act="info" data-id="${esc(x.id)}" aria-label="About ${esc(x.n)}">${thumb(find(x.id))}</button>
-      <div>
-        <h3>${esc(x.n)}</h3>
-        ${x.t ? `<p class="prev tgt">Target ${tgt(x.t)}, ${x.sets.length} of ${x.t.s} done</p>` : ''}
-        ${prev ? `<p class="prev">Last time ${prev.sets.map(s => `${lbs(s.w)}×${s.r}`).join(', ')}</p>` : ''}
-      </div>
-      <button class="x" data-act="rm-ex" data-i="${i}" aria-label="Remove ${esc(x.n)}">×</button>
+// Timed targets ("30 sec", "10–15 min") log their number in that unit instead of reps.
+const unit = x => (/min/.test(x.t?.r) ? 'min' : /sec/.test(x.t?.r) ? 'sec' : 'reps');
+// goal 0 = no target (empty workout): one set marks it done, but the form stays open for more.
+const goal = x => (x.t?.s ? x.t.s + (x.more || 0) : 0);
+const isDone = x => (goal(x) ? x.sets.length >= goal(x) : x.sets.length > 0);
+const restLeft = () => Math.max(0, Math.ceil((db.active?.rest - Date.now()) / 1000)) || 0;
+const mmss = s => `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
+const nextEx = i => {
+  const ex = db.active.ex, after = ex.findIndex((x, j) => j > i && !isDone(x));
+  return after >= 0 ? after : ex.findIndex((x, j) => j !== i && !isDone(x));
+};
+
+function restCard(tag = 'div') {
+  const left = restLeft(), total = db.active.restTotal || left;
+  return `<${tag} class="rest" role="timer" aria-label="Rest">
+    <small>Rest</small><b id="rest">${mmss(left)}</b>
+    <span class="rbar"><i id="restbar" style="width:${left / total * 100}%"></i></span>
+    <span class="rest-btns">
+      <button data-act="rest" data-d="-15">−15s</button><button data-act="rest" data-d="15">+15s</button><button data-act="rest" data-d="0">Skip</button>
+    </span>
+  </${tag}>`;
+}
+
+function stepper(name, val, d, label) {
+  return `<div><span>${label}</span><div class="num">
+    <button type="button" data-act="bump" data-d="-${d}" aria-label="Less">−</button>
+    <input name="${name}" inputmode="${name === 'w' ? 'decimal' : 'numeric'}" pattern="${name === 'w' ? '\\d*\\.?\\d*' : '[1-9]\\d*'}"${name === 'r' ? ' required' : ''}
+      value="${val || ''}" placeholder="${name === 'w' ? 'BW' : '0'}" aria-label="${name === 'w' ? 'Weight in lbs, empty for bodyweight' : label}">
+    <button type="button" data-act="bump" data-d="${d}" aria-label="More">+</button>
+  </div></div>`;
+}
+
+function overview() {
+  const a = db.active, n = a.ex.findIndex(x => !isDone(x));
+  if (!a.ex.length) return '<p class="empty">Add an exercise to start logging sets.</p><button class="add-ex" data-act="pick">+ Add exercise</button>';
+  return `${a.rest ? restCard() : ''}
+  ${n < 0
+    ? '<button class="go" data-act="finish">Finish workout<small>Every exercise done</small></button>'
+    : `<button class="go" data-act="cur" data-i="${n}">${setCount(a) ? 'Continue' : 'Start'}: ${esc(a.ex[n].n)}<small>Set ${a.ex[n].sets.length + 1}${goal(a.ex[n]) ? ` of ${goal(a.ex[n])}` : ''}</small></button>`}
+  <ul class="rex wx">${a.ex.map((x, j) => `<li><button data-act="cur" data-i="${j}">
+    <span class="thumb">${thumb(find(x.id))}</span>
+    <span>${esc(x.n)}<small>${goal(x) ? `${x.sets.length} of ${goal(x)} sets, ${esc(x.t.r)}${unit(x) === 'reps' ? ' reps' : ''}` : `${x.sets.length} ${x.sets.length === 1 ? 'set' : 'sets'}`}</small></span>
+    <i class="tick${isDone(x) ? ' on' : ''}" aria-label="${isDone(x) ? 'Done' : 'Not done'}"></i>
+  </button></li>`).join('')}</ul>
+  <button class="add-ex" data-act="pick">+ Add exercise</button>`;
+}
+
+function step(x, i) {
+  const a = db.active, prev = lastTime(x.id), u = unit(x), c = x.sets.length;
+  const rows = goal(x) ? Math.max(goal(x), c) : c + 1, done = goal(x) && c >= goal(x);
+  const seed = x.sets.at(-1) || prev?.sets[c] || prev?.sets.at(-1) || { w: '', r: parseInt(x.t?.r) || '' };
+  const hint = j => (prev?.sets[j] ? `<span class="hint">Last ${lbs(prev.sets[j].w)}×${prev.sets[j].r}</span>` : '');
+  const n = nextEx(i), strong = done || (!goal(x) && c);
+  const next = `${strong ? 'class="go"' : 'class="link"'} ${n < 0
+    ? 'data-act="finish">Finish workout'
+    : `data-act="cur" data-i="${n}">${strong ? 'Next' : 'Skip to'}: ${esc(a.ex[n].n)}`}`;
+  return `<p class="count">Exercise ${i + 1} of ${a.ex.length}</p>
+  <div class="ex-head">
+    <button class="thumb" data-act="info" data-id="${esc(x.id)}" aria-label="How to do ${esc(x.n)}">${thumb(find(x.id))}</button>
+    <div>
+      <h3>${esc(x.n)}</h3>
+      ${x.t ? `<p class="prev tgt">Target ${tgt(x.t)}${u === 'reps' ? ' reps' : ''}</p>` : ''}
     </div>
-    ${x.sets.length ? setRows(x, i, true) : ''}
-    <form class="log" data-i="${i}">
-      <label><input name="w" inputmode="decimal" pattern="\\d*\\.?\\d*" value="${seed.w || ''}" placeholder="0" aria-label="Weight in lbs, empty for bodyweight"><span>lbs</span></label>
-      <label><input name="r" inputmode="numeric" pattern="[1-9]\\d*" required value="${seed.r}" placeholder="0" aria-label="Reps"><span>reps</span></label>
-      <button>Add set</button>
-    </form>
-  </section>`;
+  </div>
+  <ol class="sl">${Array.from({ length: rows }, (_, j) => {
+    const s = x.sets[j];
+    if (s) return `<li${flash?.[0] === i && flash[1] === j ? ' class="new"' : ''}>
+      <i class="tick on" aria-hidden="true"></i><span class="lbl">Set ${j + 1}</span>
+      <b>${lbs(s.w)}</b><small>${s.w > 0 ? 'lbs' : ''}</small><i>×</i><b>${s.r}</b><small>${u}</small>
+      <button class="x" data-act="rm-set" data-i="${i}" data-j="${j}" aria-label="Delete set ${j + 1}">×</button></li>`;
+    if (j > c) return `<li class="todo"><i class="tick" aria-hidden="true"></i><span class="lbl">Set ${j + 1}</span>${hint(j)}</li>`;
+    if (a.rest) return restCard('li');
+    return `<li class="cur"><form class="log" data-i="${i}">
+      <p class="log-top"><span>Set ${j + 1}${goal(x) ? ` of ${goal(x)}` : ''}</span>${hint(j)}</p>
+      <div class="io">${stepper('w', seed.w, 5, 'lbs')}${stepper('r', seed.r, 1, u)}</div>
+      <button class="go">✓ Done</button>
+    </form></li>`;
+  }).join('')}</ol>
+  ${done && a.rest ? restCard() : ''}
+  <div class="nx">
+    <button ${next}</button>
+    ${done ? `<button class="link" data-act="more" data-i="${i}">+ Add another set</button>` : ''}
+    <button class="txt danger" data-act="rm-ex" data-i="${i}">Remove exercise</button>
+  </div>`;
 }
 
 function workout() {
-  const a = db.active;
+  const a = db.active, i = a.ex[a.cur] ? a.cur : null;
+  if (a.rest && !restLeft()) a.rest = null;
   return `
   <header class="bar">
-    <button class="txt" data-act="discard">Discard</button>
+    ${i == null ? '<button class="txt" data-act="discard">Discard</button>' : '<button class="txt" data-act="cur">‹ All exercises</button>'}
     <div class="ttl"><span>${a.name ? esc(a.name) : day(a.start)}</span><small id="elapsed">${dur(a.start)}</small></div>
     <button class="pill" data-act="finish">Finish</button>
   </header>
-  ${a.ex.map(block).join('') || '<p class="empty">Add an exercise to start logging sets.</p>'}
-  <button class="add-ex" data-act="pick">+ Add exercise</button>`;
+  ${i == null ? overview() : step(a.ex[i], i)}`;
 }
 
 function routine() {
@@ -364,9 +425,34 @@ function info(id) {
 
 function addEx(e) {
   if (pickFor === 'routine') draft.ex.push({ id: e.id, n: e.n });
-  else { db.active.ex.push({ id: e.id, n: e.n, sets: [] }); save() }
+  else { db.active.cur = db.active.ex.push({ id: e.id, n: e.n, sets: [] }) - 1; save() }
   sheet.close(); go(pickFor);
-  scrollTo(0, document.body.scrollHeight);
+  if (pickFor === 'routine') scrollTo(0, document.body.scrollHeight);
+}
+
+// Rest-over chime. iOS only allows audio once a tap has created the context, so logSet() does that.
+let audio = null;
+function beep() {
+  if (!audio) return;
+  const o = audio.createOscillator(), g = audio.createGain(), t = audio.currentTime;
+  o.frequency.value = 880;
+  g.gain.setValueAtTime(.3, t); g.gain.exponentialRampToValueAtTime(.001, t + .6);
+  o.connect(g).connect(audio.destination); o.start(); o.stop(t + .6);
+}
+
+function logSet(i, s) {
+  const a = db.active, x = a.ex[i];
+  const best = Math.max(0, ...[...db.workouts, a].flatMap(w => w.ex.filter(y => y.id === x.id).flatMap(y => y.sets.map(z => z.w))));
+  x.sets.push(s);
+  flash = [i, x.sets.length - 1];
+  if (best && s.w > best) toast(`New best: ${s.w} lbs`);
+  // No rest after the very last set of the workout.
+  if (!isDone(x) || nextEx(i) >= 0) {
+    db.restSec ||= 90;
+    a.rest = Date.now() + db.restSec * 1000; a.restTotal = db.restSec;
+  }
+  try { audio ||= new AudioContext(); audio.resume() } catch {}
+  save(); render();
 }
 
 // --- actions ---
@@ -424,9 +510,23 @@ const act = {
   'rm-ex'(b) {
     const x = db.active.ex[b.dataset.i];
     if (x.sets.length && !confirm(`Remove ${x.n} and its ${x.sets.length} sets?`)) return;
-    db.active.ex.splice(b.dataset.i, 1); save(); render();
+    db.active.ex.splice(b.dataset.i, 1); db.active.cur = null; save(); go('workout');
   },
   'rm-set'(b) { db.active.ex[b.dataset.i].sets.splice(b.dataset.j, 1); save(); render() },
+  cur(b) { db.active.cur = b.dataset.i == null ? null : +b.dataset.i; save(); go('workout') },
+  bump(b) {
+    const inp = b.parentElement.querySelector('input');
+    inp.value = Math.max(0, (parseFloat(inp.value) || 0) + +b.dataset.d) || '';
+  },
+  // Nudging the timer also becomes the default rest for next time.
+  rest(b) {
+    const a = db.active, d = +b.dataset.d;
+    if (!d) a.rest = null;
+    else { a.rest += d * 1000; a.restTotal = Math.max(a.restTotal + d, 1); db.restSec = Math.min(600, Math.max(15, (db.restSec || 90) + d)) }
+    if (!restLeft()) a.rest = null;
+    save(); render();
+  },
+  more(b) { const x = db.active.ex[b.dataset.i]; x.more = (x.more || 0) + 1; save(); render() },
   discard() {
     if (setCount(db.active) && !confirm("Discard this workout? Its sets won't be saved.")) return;
     db.active = null; save(); go('home');
@@ -434,7 +534,8 @@ const act = {
   finish() {
     const a = db.active;
     if (!setCount(a)) return act.discard();
-    a.ex = a.ex.filter(x => x.sets.length);
+    a.ex = a.ex.filter(x => x.sets.length).map(({ more, ...x }) => x);
+    delete a.cur; delete a.rest; delete a.restTotal;
     a.end = new Date().toISOString();
     db.workouts.unshift(a); db.active = null; save();
     go('home'); toast('Workout saved');
@@ -478,10 +579,7 @@ document.addEventListener('submit', e => {
   e.preventDefault();
   const f = e.target, d = new FormData(f);
   if (f.classList.contains('log')) {
-    const i = +f.dataset.i, x = db.active.ex[i];
-    x.sets.push({ w: parseFloat(d.get('w')) || 0, r: parseInt(d.get('r'), 10) });
-    flash = [i, x.sets.length - 1];
-    save(); render();
+    logSet(+f.dataset.i, { w: parseFloat(d.get('w')) || 0, r: parseInt(d.get('r'), 10) });
   } else if (f.classList.contains('new')) {
     const n = d.get('n').trim();
     let c = db.custom.find(x => x.n.toLowerCase() === n.toLowerCase());
@@ -522,9 +620,19 @@ document.addEventListener('scroll', e => {
 document.addEventListener('error', e => { if (e.target.tagName === 'IMG') e.target.style.visibility = 'hidden' }, true);
 
 setInterval(() => {
-  const el = document.getElementById('elapsed');
-  if (el && db.active) el.textContent = dur(db.active.start);
-}, 30000);
+  const a = db.active, el = document.getElementById('elapsed');
+  if (!a) return;
+  if (el) el.textContent = dur(a.start);
+  if (!a.rest) return;
+  const left = restLeft(), t = document.getElementById('rest');
+  if (left && t) {
+    t.textContent = mmss(left);
+    document.getElementById('restbar').style.width = `${left / a.restTotal * 100}%`;
+  } else if (!left) {
+    a.rest = null; save(); beep(); navigator.vibrate?.(300);
+    if (view === 'workout' && !sheet.open) render();
+  }
+}, 1000);
 
 render();
 // Sources merge in order; the first to claim a name keeps it, so saved free-exercise-db ids never change.
