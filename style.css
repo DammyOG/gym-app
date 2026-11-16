@@ -393,3 +393,15 @@ body:has(#sheet[open]) { overflow: hidden; }
 .wheel:focus { border-color: var(--lime); outline: 0; }
 .credits { margin-top: 40px; color: var(--mute); font-size: 12px; text-align: center; }
 .credits a { color: inherit; }
+
+/* progress chart (exercise sheet) */
+.pg-h { margin-top: 24px; }
+.pg-read { margin-top: 12px; font-size: 15px; font-weight: 700; font-variant-numeric: tabular-nums; }
+.pg { display: block; width: 100%; height: auto; margin-top: 6px; overflow: visible; touch-action: pan-y; }
+.pg line { stroke: var(--line); stroke-width: 1; vector-effect: non-scaling-stroke; }
+.pg text { fill: var(--mute); font-size: 11px; font-variant-numeric: tabular-nums; }
+.pg polyline { fill: none; stroke: var(--lime); stroke-width: 2; stroke-linejoin: round; stroke-linecap: round; vector-effect: non-scaling-stroke; }
+.pg circle { fill: var(--lime); }
+.pg .sel { fill: var(--lime); stroke: var(--raise); stroke-width: 3; }
+.pg-x { display: flex; justify-content: space-between; color: var(--mute); font-size: 12px; }
+.pg-link { display: block; min-height: 36px; margin: -4px 0 6px 68px; color: var(--lime); font-size: 14px; font-weight: 600; }

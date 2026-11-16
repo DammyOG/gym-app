@@ -61,6 +61,7 @@ const daysText = days => days.length ? DAYS.filter(d => days.includes(d)).map(da
 const dayKey = d => new Date(d).toLocaleDateString('en-CA'); // local YYYY-MM-DD
 const monday = d => { const x = new Date(d); x.setHours(0, 0, 0, 0); x.setDate(x.getDate() - (x.getDay() + 6) % 7); return x };
 const tgt = t => (t.s > 1 ? `${t.s} × ${t.r}` : t.r);
+const topSet = x => x.sets.reduce((a, b) => (b.w > a.w || (b.w === a.w && b.r > a.r) ? b : a));
 const setCount = w => w.ex.reduce((n, x) => n + x.sets.length, 0);
 const lastTime = id => db.workouts.find(w => w.ex.some(x => x.id === id))?.ex.find(x => x.id === id);
 const pic = (p, attrs = '') => `<img src="${p.startsWith('http') ? p : IMG + p}"${p.includes('wger.de') ? '' : ' crossorigin="anonymous"'} ${attrs}>`;
@@ -142,13 +143,14 @@ function history() {
 
 function pexList(w) {
   return w.ex.map(x => {
-    const top = x.sets.reduce((a, b) => (b.w > a.w || (b.w === a.w && b.r > a.r) ? b : a));
+    const top = topSet(x);
     return `<details class="pex">
       <summary>
         <span class="thumb">${thumb(find(x.id))}</span>
         <span><b>${esc(x.n)}</b><small>${x.sets.length} ${x.sets.length === 1 ? 'set' : 'sets'}, top ${lbs(top.w)} × ${top.r}</small></span>
       </summary>
       ${setRows(x)}
+      <button class="txt pg-link" data-act="info" data-id="${esc(x.id)}">See progress ›</button>
     </details>`;
   }).join('');
 }
@@ -417,11 +419,50 @@ function info(id) {
       : thumb(e)}</div>
     <h2>${esc(e.n)}</h2>
     ${e.m ? `<ul class="chips">${[...e.m, e.e].filter(Boolean).map(c => `<li>${esc(c)}</li>`).join('')}</ul>` : ''}
+    ${progress(id)}
     ${e.s?.length ? `<ol class="steps">${e.s.map(s => `<li>${esc(s)}</li>`).join('')}</ol>` : ''}
     <div class="sheet-foot">${view === 'picker'
       ? `<button class="go" data-act="add" data-id="${esc(id)}">Add to ${pickFor}</button>`
       : '<button class="ghost" data-act="close">Close</button>'}</div>`);
 }
+
+// Best set of each past workout, oldest first. Bodyweight-only lifts chart reps (or seconds) instead.
+let chart = null; // points of the chart in the open sheet, for tap-to-read
+const readout = p => `${day(p.d)}: ${p.s.w ? `${p.s.w} lbs × ${p.s.r}` : `${p.s.r} ${p.u}`}`;
+function progress(id) {
+  const pts = db.workouts.flatMap(w => w.ex.filter(x => x.id === id && x.sets.length)
+    .map(x => ({ d: w.start, s: topSet(x), u: unit(x) }))).reverse();
+  chart = null;
+  if (!pts.length) return '';
+  const bw = pts.every(p => !p.s.w), v = p => (bw ? p.s.r : p.s.w), u = bw ? pts.at(-1).u : 'lbs';
+  const vs = pts.map(v), lo = Math.min(...vs), hi = Math.max(...vs);
+  chart = pts.map((p, i) => ({ ...p,
+    x: pts.length > 1 ? 8 + i * 304 / (pts.length - 1) : 160,
+    y: hi === lo ? 60 : 100 - (v(p) - lo) / (hi - lo) * 80 }));
+  const last = chart.at(-1), diff = vs.at(-1) - vs[0];
+  return `<h3 class="pg-h">Your progress</h3>
+  <p class="sub">Best ${hi} ${u}${pts.length > 1 ? `, ${diff >= 0 ? '+' : '−'}${Math.abs(diff)} ${u} since ${day(pts[0].d)}` : ''}</p>
+  <p class="pg-read" id="pgr" aria-live="polite">${readout(last)}</p>
+  <svg viewBox="0 0 320 120" class="pg" id="pg" role="img" aria-label="Best set per workout, ${pts.length} workouts, from ${vs[0]} to ${vs.at(-1)} ${u}">
+    <line x1="0" x2="320" y1="20" y2="20"/><line x1="0" x2="320" y1="100" y2="100"/>
+    <text x="0" y="14">${hi}</text>${hi === lo ? '' : `<text x="0" y="116">${lo}</text>`}
+    ${chart.length > 1 ? `<polyline points="${chart.map(p => `${p.x},${p.y}`).join(' ')}"/>` : ''}
+    ${chart.map(p => `<circle cx="${p.x}" cy="${p.y}" r="3.5"/>`).join('')}
+    <circle id="pgdot" class="sel" cx="${last.x}" cy="${last.y}" r="6"/>
+  </svg>
+  <p class="pg-x"><span>${day(pts[0].d)}</span>${pts.length > 1 ? `<span>${day(last.d)}</span>` : ''}</p>`;
+}
+function readChart(e) {
+  const svg = e.target.closest?.('#pg');
+  if (!svg || !chart) return;
+  const r = svg.getBoundingClientRect(), x = (e.clientX - r.left) / r.width * 320;
+  const p = chart.reduce((a, b) => (Math.abs(b.x - x) < Math.abs(a.x - x) ? b : a));
+  const dot = document.getElementById('pgdot');
+  dot.setAttribute('cx', p.x); dot.setAttribute('cy', p.y);
+  document.getElementById('pgr').textContent = readout(p);
+}
+sheet.addEventListener('pointerdown', readChart);
+sheet.addEventListener('pointermove', readChart);
 
 function addEx(e) {
   if (pickFor === 'routine') draft.ex.push({ id: e.id, n: e.n });
